@@ -1,0 +1,106 @@
+import com.github.gradle.node.npm.task.NpmTask
+
+/*
+ *  Copyright 2023 Alexey Andreev.
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+plugins {
+    `java-library`
+    `teavm-publish`
+    alias(libs.plugins.nodejs)
+}
+
+description = "Compiler, backends and runtime"
+
+node {
+    download = providers.gradleProperty("teavm.localNodeJS")
+        .map { it == "true" }
+        .map { !it }
+        .orElse(true)
+}
+
+dependencies {
+    api(project(":interop:core"))
+    api(project(":metaprogramming:api"))
+
+    implementation(project(":extension:apis"))
+    implementation(project(":extension:spi"))
+    implementation(libs.asm.commons)
+    implementation(libs.asm.util)
+    implementation(libs.hppc)
+    implementation(libs.rhino)
+
+    compileOnly(libs.jackson.annotations)
+
+    testImplementation(libs.junit)
+}
+
+val jsOutputDir = layout.buildDirectory.dir("generated/js")
+val jsOutputPackageDir = jsOutputDir.map { it.dir("org/teavm/backend/wasm") }
+val jsInputDir = layout.projectDirectory.dir("src/main/js/wasm-gc-runtime")
+
+fun registerRuntimeTasks(taskName: String, wrapperName: String, outputName: String, esFormat: String, module: Boolean) {
+    val generateTask by tasks.register<NpmTask>("generate${taskName}Runtime") {
+        dependsOn(tasks.npmInstall)
+        val wrapperFile = jsInputDir.file("$wrapperName.ts")
+        val outputFile = jsOutputPackageDir.map { it.file("$outputName.js") }
+        inputs.dir(jsInputDir)
+        outputs.file(outputFile)
+        npmCommand.addAll("run", "esbuild")
+        args.addAll(provider {
+            listOf(
+                "--",
+                wrapperFile.asFile.absolutePath,
+                "--bundle",
+                "--platform=neutral",
+                "--format=$esFormat",
+                "--target=es2022",
+                "--external:node:*",
+                "--outfile=${outputFile.get().asFile.absolutePath}"
+            )
+        })
+    }
+
+    val optimizeTask = tasks.register<NpmTask>("optimize${taskName}Runtime") {
+        dependsOn(tasks.npmInstall)
+        val inputFiles = generateTask.outputs.files
+        val outputFile = jsOutputPackageDir.map { it.file("$outputName.min.js") }
+        inputs.files(inputFiles)
+        outputs.file(outputFile)
+        npmCommand.addAll("run", "uglify")
+        args.addAll(provider {
+            listOf(
+                "--",
+                "-m", "--toplevel",
+                *(if (module) arrayOf("--module") else emptyArray()),
+                "--mangle", "reserved=['TeaVM']",
+                inputFiles.singleFile.absolutePath,
+                "-o", outputFile.get().asFile.absolutePath
+            )
+        })
+    }
+
+    sourceSets.main.configure {
+        output.dir(mapOf("builtBy" to generateTask), jsOutputDir)
+        output.dir(mapOf("builtBy" to optimizeTask), jsOutputDir)
+    }
+}
+
+registerRuntimeTasks("Simple", "simple-wrapper", "wasm-gc-runtime", "iife", module = false)
+registerRuntimeTasks("Module", "module-wrapper", "wasm-gc-module-runtime", "esm", module = true)
+
+teavmPublish {
+    artifactId = "teavm-core"
+}

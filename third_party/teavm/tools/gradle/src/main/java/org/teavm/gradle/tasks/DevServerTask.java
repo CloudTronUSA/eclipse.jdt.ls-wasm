@@ -1,0 +1,210 @@
+/*
+ *  Copyright 2024 Alexey Andreev.
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+package org.teavm.gradle.tasks;
+
+import java.io.File;
+import java.io.IOException;
+import javax.inject.Inject;
+import org.gradle.api.DefaultTask;
+import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.provider.ListProperty;
+import org.gradle.api.provider.MapProperty;
+import org.gradle.api.provider.Property;
+import org.gradle.api.provider.SetProperty;
+import org.gradle.api.tasks.Classpath;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.Optional;
+import org.gradle.api.tasks.TaskAction;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
+import org.teavm.devserver.client.DevServerTarget;
+import org.teavm.gradle.api.DevServerTargetType;
+import org.teavm.gradle.api.JSModuleType;
+
+public abstract class DevServerTask extends DefaultTask {
+    @Internal
+    public abstract SetProperty<String> getAllProjectPaths();
+
+    @Internal
+    public abstract Property<String> getProjectPath();
+
+    @Input
+    @Optional
+    public abstract Property<DevServerTargetType> getTargetType();
+
+    @Classpath
+    public abstract ConfigurableFileCollection getClasspath();
+
+    @Input
+    @Optional
+    public abstract Property<String> getTargetFileName();
+
+    @Input
+    @Optional
+    public abstract Property<String> getTargetFilePath();
+
+    @Input
+    @Optional
+    public abstract MapProperty<String, String> getProperties();
+
+    @Input
+    @Optional
+    public abstract ListProperty<String> getPreservedClasses();
+
+    @Input
+    @Optional
+    public abstract Property<JSModuleType> getJsModuleType();
+
+    @Input
+    @Optional
+    public abstract Property<Boolean> getWasmSharedBuffer();
+
+    @Input
+    @Optional
+    public abstract Property<Boolean> getWasmModularRuntime();
+
+    @Input
+    public abstract Property<String> getMainClass();
+
+    @Input
+    @Optional
+    public abstract Property<Boolean> getStackDeobfuscated();
+
+    @Input
+    @Optional
+    public abstract Property<Boolean> getIndicator();
+
+    @Input
+    @Optional
+    public abstract Property<Integer> getPort();
+
+    @InputFiles
+    public abstract ConfigurableFileCollection getSourceFiles();
+
+    @Input
+    @Optional
+    public abstract Property<Boolean> getAutoReload();
+
+    @Input
+    @Optional
+    public abstract Property<String> getProxyUrl();
+
+    @Input
+    @Optional
+    public abstract Property<String> getProxyPath();
+
+    @Input
+    @Optional
+    public abstract Property<Integer> getProcessMemory();
+
+    @Classpath
+    public abstract ConfigurableFileCollection getServerClasspath();
+
+    @Internal
+    public abstract Property<Integer> getServerDebugPort();
+
+    @InputFiles
+    public abstract ConfigurableFileCollection getStaticDirs();
+
+    @Input
+    @Optional
+    public abstract Property<String> getStaticServePath();
+
+    @Input
+    public abstract ListProperty<String> getResourceRoots();
+
+    @Input
+    @Optional
+    public abstract Property<String> getResourceServePath();
+
+    @Inject
+    protected abstract ProgressLoggerFactory getProgressLoggerFactory();
+
+    @TaskAction
+    public void compileInCodeServer() throws IOException {
+        var codeServerManager = DevServerManager.instance();
+        codeServerManager.cleanup(getAllProjectPaths().get(), getLogger());
+        var pm = codeServerManager.getProjectManager(getProjectPath().get());
+
+        pm.setClasspath(getClasspath().getFiles());
+        pm.setSources(getSourceFiles().getFiles());
+
+        if (getTargetType().isPresent()) {
+            pm.setTarget(switch (getTargetType().get()) {
+                case JS -> DevServerTarget.JS;
+                case WASM_GC -> DevServerTarget.WASM_GC;
+            });
+        }
+
+        if (getTargetFileName().isPresent()) {
+            pm.setTargetFileName(getTargetFileName().get());
+        }
+
+        if (getTargetFilePath().isPresent()) {
+            pm.setTargetFilePath(getTargetFilePath().get());
+        }
+
+        pm.setProperties(getProperties().get());
+        pm.setPreservedClasses(getPreservedClasses().get());
+        if (getJsModuleType().isPresent()) {
+            pm.setJsModuleType(getJsModuleType().get());
+        }
+        if (getWasmSharedBuffer().isPresent()) {
+            pm.setWasmSharedBuffer(getWasmSharedBuffer().get());
+        }
+        if (getWasmModularRuntime().isPresent()) {
+            pm.setWasmModularRuntime(getWasmModularRuntime().get());
+        }
+
+        pm.setServerClasspath(getServerClasspath().getFiles());
+        pm.setMainClass(getMainClass().get());
+
+        pm.setStackDeobfuscated(!getStackDeobfuscated().isPresent() || getStackDeobfuscated().get());
+        pm.setIndicator(getIndicator().isPresent() && getIndicator().get());
+        pm.setAutoReload(getAutoReload().isPresent() && getAutoReload().get());
+
+        if (getPort().isPresent()) {
+            pm.setPort(getPort().get());
+        }
+        if (getProxyUrl().isPresent()) {
+            pm.setProxyUrl(getProxyUrl().get());
+        }
+        if (getProxyPath().isPresent()) {
+            pm.setProxyPath(getProxyPath().get());
+        }
+        pm.setStaticDirs(getStaticDirs().getFiles().stream().map(File::getAbsolutePath).toList());
+        if (getStaticServePath().isPresent()) {
+            pm.setStaticServePath(getStaticServePath().get());
+        }
+        pm.setResourcePaths(getResourceRoots().get());
+        if (getResourceServePath().isPresent()) {
+            pm.setResourceServePath(getResourceServePath().get());
+        }
+
+        if (getProcessMemory().isPresent()) {
+            pm.setProcessMemory(getProcessMemory().get());
+        }
+        if (getServerDebugPort().isPresent()) {
+            pm.setDebugPort(getServerDebugPort().get());
+        }
+
+        var progress = getProgressLoggerFactory().newOperation(getClass());
+        progress.start("Compilation", getName());
+        pm.runBuild(getLogger(), progress);
+        progress.completed();
+    }
+}
