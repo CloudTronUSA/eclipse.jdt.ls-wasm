@@ -1,12 +1,13 @@
-# Eclipse JDT LS WebAssembly
+# Eclipse JDT LS Web
 
 This fork adds a lightweight browser-oriented Java linter built from Eclipse ECJ
-and TeaVM WebAssembly.
+and TeaVM.
 
-The WASM module is `org.eclipse.jdt.ls.web`. It is intentionally focused on
-linting Java source text and related files in a folder. It is not the desktop
-JDT LS server and it does not include editor integration, Maven/Gradle import,
-debugging, completion, hover, code actions, or a web app.
+The web module is `org.eclipse.jdt.ls.web`. It is intentionally focused on
+linting Java source text and related files in a folder. It can be compiled to
+WASM or JavaScript. It is not the desktop JDT LS server and it does not include
+editor integration, Maven/Gradle import, debugging, completion, hover, code
+actions, or a web app.
 
 ## Components
 
@@ -16,10 +17,11 @@ debugging, completion, hover, code actions, or a web app.
   - Internal TeaVM build glue: `org.eclipse.jdt.ls.web.internal.teavm`.
   - Internal resource selection: `org.eclipse.jdt.ls.web.internal.resources`.
   - Generated WASM output: `org.eclipse.jdt.ls.web/target/generated/wasm/teavm/`.
+  - Generated JS output: `org.eclipse.jdt.ls.web/target/generated/js/teavm/`.
 
 - `third_party/teavm`
-  - Vendored patched TeaVM compiler/runtime sources required to build the WASM
-    artifact.
+  - Vendored patched TeaVM compiler/runtime sources required to build the
+    WASM/JS artifacts.
 
 ## What Is Implemented
 
@@ -27,7 +29,9 @@ debugging, completion, hover, code actions, or a web app.
 - In-memory folder source model, so files can resolve each other.
 - Basic LSP-shaped handling for initialize, open/change/close, watched file
   changes, configuration changes, and publish diagnostics.
-- Synthetic browser classpath for common Java APIs needed by the linter.
+- Browser-bundled JDK API signatures generated from the build JDK's `ct.sym`,
+  covering the Java/JDK standard library signatures available for Java 17.
+  These are compile-time signatures for linting, not runtime implementations.
 - Processing Java mode for `.pde` sketches:
   - provide an entrypoint PDE file
   - provide any additional PDE files
@@ -42,10 +46,10 @@ Maven repository. From the vendored TeaVM tree:
 
 ```sh
 cd third_party/teavm
-./gradlew :core:publishToMavenLocal :classlib:publishToMavenLocal :tools:maven:plugin:publishToMavenLocal
+./gradlew :core:publishToMavenLocal :classlib:publishToMavenLocal :jso:core:publishToMavenLocal :jso:apis:publishToMavenLocal :tools:maven:plugin:publishToMavenLocal
 ```
 
-## Build The WASM Linter
+## Build The Web Linter
 
 From the repository root:
 
@@ -58,6 +62,7 @@ Outputs:
 ```text
 org.eclipse.jdt.ls.web/target/generated/wasm/teavm/classes.wasm
 org.eclipse.jdt.ls.web/target/generated/wasm/teavm/classes.wasm-runtime.js
+org.eclipse.jdt.ls.web/target/generated/js/teavm/classes.js
 ```
 
 ## API

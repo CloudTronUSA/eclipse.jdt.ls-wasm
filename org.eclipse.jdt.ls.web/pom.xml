@@ -70,6 +70,30 @@
 				<version>3.14.1</version>
 			</plugin>
 			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-antrun-plugin</artifactId>
+				<version>3.1.0</version>
+				<executions>
+					<execution>
+						<id>extract-jdk-signatures</id>
+						<phase>generate-resources</phase>
+						<goals>
+							<goal>run</goal>
+						</goals>
+						<configuration>
+							<target>
+								<mkdir dir="${project.build.outputDirectory}" />
+								<exec executable="${java.home}/bin/java" failonerror="true">
+									<arg value="${project.basedir}/build/ExtractJdkSignatures.java" />
+									<arg value="${project.build.outputDirectory}" />
+									<arg value="17" />
+								</exec>
+							</target>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
 				<groupId>org.teavm</groupId>
 				<artifactId>teavm-maven-plugin</artifactId>
 				<version>${teavm.version}</version>
@@ -102,6 +126,24 @@
 						</goals>
 						<configuration>
 							<targetDirectory>${project.build.directory}/generated/wasm/teavm</targetDirectory>
+						</configuration>
+					</execution>
+					<execution>
+						<id>web-jdt-ls-js</id>
+						<phase>process-classes</phase>
+						<goals>
+							<goal>compile</goal>
+						</goals>
+						<configuration>
+							<targetDirectory>${project.build.directory}/generated/js/teavm</targetDirectory>
+							<targetFileName>classes.js</targetFileName>
+							<targetType>JAVASCRIPT</targetType>
+							<mainClass>org.eclipse.jdt.ls.web.WebJdtLs</mainClass>
+							<optimizationLevel>SIMPLE</optimizationLevel>
+							<minifying>false</minifying>
+							<debugInformationGenerated>true</debugInformationGenerated>
+							<sourceMapsGenerated>true</sourceMapsGenerated>
+							<sourceFilesCopied>false</sourceFilesCopied>
 						</configuration>
 					</execution>
 				</executions>

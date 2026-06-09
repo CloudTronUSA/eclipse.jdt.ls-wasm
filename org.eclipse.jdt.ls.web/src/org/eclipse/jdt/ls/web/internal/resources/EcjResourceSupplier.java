@@ -50,12 +50,17 @@ public final class EcjResourceSupplier implements ResourceSupplier {
 		resources.add(prefix + "unicode13/part2.rsc");
 		resources.add(prefix + "unicode13/part3.rsc");
 		resources.add(prefix + "unicode13/part14.rsc");
+		addLineSeparatedResources(resources, "jdk-signature.resources");
 		addProcessingCoreResources(resources);
 		return resources.toArray(new String[0]);
 	}
 
 	private static void addProcessingCoreResources(List<String> resources) {
-		InputStream input = EcjResourceSupplier.class.getResourceAsStream("processing-core.resources");
+		addLineSeparatedResources(resources, "processing-core.resources");
+	}
+
+	private static void addLineSeparatedResources(List<String> resources, String resourceName) {
+		InputStream input = EcjResourceSupplier.class.getResourceAsStream(resourceName);
 		if (input == null) {
 			return;
 		}

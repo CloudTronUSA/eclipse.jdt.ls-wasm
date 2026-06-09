@@ -113,11 +113,12 @@ final class EcjCompilerDiagnostics {
 			registerPackage("processing.opengl");
 			registerPackage("java");
 			registerPackage("java.lang");
+			registerJdkSignaturePackages();
 			registerJavaLang("Object", "package java.lang; public class Object {}");
 			registerJavaLang("CharSequence",
 					"package java.lang; public interface CharSequence { int length(); char charAt(int index); String toString(); }");
 			registerJavaLang("String",
-					"package java.lang; public final class String implements CharSequence, Comparable<String> { public int length() { return 0; } public char charAt(int index) { return 0; } public boolean isEmpty() { return false; } public String trim() { return this; } public String substring(int beginIndex) { return this; } public String substring(int beginIndex, int endIndex) { return this; } public boolean contains(CharSequence value) { return false; } public boolean startsWith(String prefix) { return false; } public boolean endsWith(String suffix) { return false; } public int indexOf(String value) { return 0; } public String toLowerCase() { return this; } public String toUpperCase() { return this; } public int compareTo(String other) { return 0; } public static String valueOf(Object value) { return null; } public static String valueOf(int value) { return null; } public static String valueOf(long value) { return null; } public static String valueOf(float value) { return null; } public static String valueOf(double value) { return null; } public static String valueOf(boolean value) { return null; } public static String valueOf(char value) { return null; } public static String format(String format, Object... args) { return null; } public static String join(CharSequence delimiter, java.lang.Iterable<? extends CharSequence> elements) { return null; } }");
+					"package java.lang; public final class String implements CharSequence, Comparable<String> { public int length() { return 0; } public char charAt(int index) { return 0; } public boolean isEmpty() { return false; } public String trim() { return this; } public String substring(int beginIndex) { return this; } public String substring(int beginIndex, int endIndex) { return this; } public boolean contains(CharSequence value) { return false; } public boolean startsWith(String prefix) { return false; } public boolean endsWith(String suffix) { return false; } public int indexOf(String value) { return 0; } public int indexOf(String value, int fromIndex) { return 0; } public String replace(char oldChar, char newChar) { return this; } public String replace(CharSequence target, CharSequence replacement) { return this; } public String replaceAll(String regex, String replacement) { return this; } public String replaceFirst(String regex, String replacement) { return this; } public String toLowerCase() { return this; } public String toUpperCase() { return this; } public int compareTo(String other) { return 0; } public static String valueOf(Object value) { return null; } public static String valueOf(int value) { return null; } public static String valueOf(long value) { return null; } public static String valueOf(float value) { return null; } public static String valueOf(double value) { return null; } public static String valueOf(boolean value) { return null; } public static String valueOf(char value) { return null; } public static String format(String format, Object... args) { return null; } public static String join(CharSequence delimiter, java.lang.Iterable<? extends CharSequence> elements) { return null; } }");
 			registerJavaLang("StringBuilder",
 					"package java.lang; public final class StringBuilder implements CharSequence { public StringBuilder() {} public StringBuilder(String value) {} public StringBuilder append(Object value) { return this; } public StringBuilder append(String value) { return this; } public StringBuilder append(int value) { return this; } public StringBuilder append(long value) { return this; } public StringBuilder append(boolean value) { return this; } public int length() { return 0; } public char charAt(int index) { return 0; } public String substring(int start) { return null; } public String toString() { return null; } }");
 			registerJavaLang("Integer",
@@ -343,11 +344,27 @@ final class EcjCompilerDiagnostics {
 		}
 
 		private NameEnvironmentAnswer find(String qualifiedName) {
+			if (isJdkApi(qualifiedName)) {
+				NameEnvironmentAnswer binaryType = binaryAnswer(qualifiedName);
+				if (binaryType != null) {
+					return binaryType;
+				}
+			}
 			MemoryCompilationUnit sourceType = sourceTypes.get(qualifiedName);
 			if (sourceType != null) {
 				return new NameEnvironmentAnswer(sourceType, null);
 			}
 			return binaryAnswer(qualifiedName);
+		}
+
+		private static boolean isJdkApi(String qualifiedName) {
+			return qualifiedName.startsWith("java.")
+					|| qualifiedName.startsWith("javax.")
+					|| qualifiedName.startsWith("jdk.")
+					|| qualifiedName.startsWith("com.sun.")
+					|| qualifiedName.startsWith("sun.")
+					|| qualifiedName.startsWith("org.w3c.")
+					|| qualifiedName.startsWith("org.xml.");
 		}
 
 		private NameEnvironmentAnswer binaryAnswer(String qualifiedName) {
@@ -382,6 +399,31 @@ final class EcjCompilerDiagnostics {
 
 		private void registerJavaLang(String simpleName, String source) {
 			register("java.lang." + simpleName, source);
+		}
+
+		private void registerJdkSignaturePackages() {
+			InputStream input = EcjCompilerDiagnostics.class.getClassLoader()
+					.getResourceAsStream("org/eclipse/jdt/ls/web/internal/resources/jdk-signature.resources");
+			if (input == null) {
+				return;
+			}
+			try {
+				String content = new String(readAll(input), "UTF-8");
+				int start = 0;
+				while (start < content.length()) {
+					int end = content.indexOf('\n', start);
+					if (end < 0) {
+						end = content.length();
+					}
+					String resource = content.substring(start, end).trim();
+					int slash = resource.lastIndexOf('/');
+					if (slash > 0 && resource.endsWith(".class")) {
+						registerPackage(resource.substring(0, slash).replace('/', '.'));
+					}
+					start = end + 1;
+				}
+			} catch (IOException ignored) {
+			}
 		}
 
 		private void register(String qualifiedName, String source) {

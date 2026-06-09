@@ -1,5 +1,7 @@
 package org.eclipse.jdt.ls.web;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -23,6 +25,7 @@ import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.FloatLiteral;
 import org.eclipse.jdt.internal.compiler.ast.ForStatement;
 import org.eclipse.jdt.internal.compiler.ast.IfStatement;
+import org.eclipse.jdt.internal.compiler.ast.ImportReference;
 import org.eclipse.jdt.internal.compiler.ast.IntLiteral;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.LongLiteral;
@@ -57,6 +60,8 @@ final class EcjSemanticDiagnostics {
 	private final String source;
 	private final List<EcjDiagnosticsEngine.DiagnosticData> diagnostics = new ArrayList<>();
 	private final Set<String> typeNames = new HashSet<>();
+	private final Set<String> importedTypes = new HashSet<>();
+	private final Set<String> importedOnDemandPackages = new HashSet<>();
 	private final Set<String> fields = new HashSet<>();
 	private final Set<String> methods = new HashSet<>();
 
@@ -133,10 +138,30 @@ final class EcjSemanticDiagnostics {
 		for (TypeDeclaration type : unit.types) {
 			collectTypeNames(type);
 		}
+		collectImports(unit);
 		for (TypeDeclaration type : unit.types) {
 			diagnoseType(type);
 		}
 		return diagnostics;
+	}
+
+	private void collectImports(CompilationUnitDeclaration unit) {
+		importedOnDemandPackages.add("java.lang");
+		if (unit.imports == null) {
+			return;
+		}
+		for (ImportReference importReference : unit.imports) {
+			if (importReference == null || importReference.tokens == null || importReference.tokens.length == 0) {
+				continue;
+			}
+			String name = qualifiedName(importReference.tokens);
+			if (importReference.trailingStarPosition >= 0) {
+				importedOnDemandPackages.add(name);
+			} else {
+				int dot = name.lastIndexOf('.');
+				importedTypes.add(dot >= 0 ? name.substring(dot + 1) : name);
+			}
+		}
 	}
 
 	private void collectTypeNames(TypeDeclaration type) {
@@ -376,7 +401,7 @@ final class EcjSemanticDiagnostics {
 			QualifiedNameReference reference = (QualifiedNameReference) expression;
 			if (reference.tokens != null && reference.tokens.length > 0) {
 				String first = new String(reference.tokens[0]);
-				if (!isKnownName(first, locals) && !typeNames.contains(first)) {
+				if (!isKnownName(first, locals) && !isPackageQualifiedJdkName(reference.tokens)) {
 					addError(reference, UNRESOLVED_NAME, first + " cannot be resolved");
 				} else {
 					locals.markUsed(first);
@@ -424,13 +449,44 @@ final class EcjSemanticDiagnostics {
 	}
 
 	private boolean isKnownName(String name, Scope locals) {
-		return locals.contains(name) || fields.contains(name) || typeNames.contains(name)
+		return locals.contains(name) || fields.contains(name) || isKnownTypeName(name)
 				|| "this".equals(name) || "super".equals(name);
+	}
+
+	private boolean isKnownTypeName(String name) {
+		if (typeNames.contains(name) || importedTypes.contains(name)) {
+			return true;
+		}
+		for (String packageName : importedOnDemandPackages) {
+			if (jdkResourceExists(packageName.replace('.', '/') + "/" + name + ".class")) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean isPackageQualifiedJdkName(char[][] tokens) {
+		if (tokens == null || tokens.length < 2) {
+			return false;
+		}
+		String first = new String(tokens[0]);
+		if ("java".equals(first) || "javax".equals(first) || "jdk".equals(first) || "sun".equals(first)) {
+			return true;
+		}
+		return tokens.length >= 3
+				&& "com".equals(first)
+				&& "sun".equals(new String(tokens[1]))
+				|| tokens.length >= 2
+				&& "org".equals(first)
+				&& ("w3c".equals(new String(tokens[1])) || "xml".equals(new String(tokens[1])));
 	}
 
 	private boolean isTypeReceiver(Expression expression) {
 		if (expression instanceof SingleNameReference) {
-			return typeNames.contains(new String(((SingleNameReference) expression).token));
+			return isKnownTypeName(new String(((SingleNameReference) expression).token));
+		}
+		if (expression instanceof QualifiedNameReference) {
+			return isPackageQualifiedJdkName(((QualifiedNameReference) expression).tokens);
 		}
 		return false;
 	}
@@ -472,7 +528,7 @@ final class EcjSemanticDiagnostics {
 			QualifiedNameReference reference = (QualifiedNameReference) expression;
 			if (reference.tokens != null && reference.tokens.length > 0) {
 				String first = new String(reference.tokens[0]);
-				if (!isKnownName(first, locals)) {
+				if (!isKnownName(first, locals) && !isPackageQualifiedJdkName(reference.tokens)) {
 					return "unresolved";
 				}
 			}
@@ -552,6 +608,29 @@ final class EcjSemanticDiagnostics {
 
 	private static boolean isBooleanLiteral(Expression expression, boolean value) {
 		return value ? expression instanceof TrueLiteral : expression instanceof FalseLiteral;
+	}
+
+	private static boolean jdkResourceExists(String resourceName) {
+		InputStream input = EcjSemanticDiagnostics.class.getClassLoader().getResourceAsStream(resourceName);
+		if (input == null) {
+			return false;
+		}
+		try {
+			input.close();
+		} catch (IOException ignored) {
+		}
+		return true;
+	}
+
+	private static String qualifiedName(char[][] parts) {
+		StringBuilder result = new StringBuilder();
+		for (int i = 0; i < parts.length; i++) {
+			if (i > 0) {
+				result.append('.');
+			}
+			result.append(parts[i]);
+		}
+		return result.toString();
 	}
 
 	private void addError(ASTNode node, int code, String message) {
