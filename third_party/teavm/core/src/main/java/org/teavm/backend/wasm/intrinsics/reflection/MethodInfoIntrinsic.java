@@ -1,0 +1,100 @@
+/*
+ *  Copyright 2026 Alexey Andreev.
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+package org.teavm.backend.wasm.intrinsics.reflection;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import org.teavm.ast.InvocationExpr;
+import org.teavm.backend.wasm.generate.classes.WasmGCClassInfoProvider;
+import org.teavm.backend.wasm.generate.methods.WasmGCGenerationUtil;
+import org.teavm.backend.wasm.intrinsics.WasmGCInlineIntrinsic;
+import org.teavm.backend.wasm.intrinsics.WasmGCInlineIntrinsicContext;
+import org.teavm.backend.wasm.model.instruction.WasmInstructionBuilder;
+import org.teavm.model.MethodReference;
+
+public class MethodInfoIntrinsic implements WasmGCInlineIntrinsic {
+    private final WasmGCClassInfoProvider classInfoProvider;
+
+    public MethodInfoIntrinsic(WasmGCClassInfoProvider classInfoProvider) {
+        this.classInfoProvider = classInfoProvider;
+    }
+
+    @Override
+    public void apply(InvocationExpr invocation, WasmGCInlineIntrinsicContext context,
+            WasmInstructionBuilder builder) {
+        var infoStruct = classInfoProvider.reflectionTypes().methodInfo();
+        switch (invocation.getMethod().getName()) {
+            case "name":
+                context.generate(builder, invocation.getArguments().get(0));
+                builder.structGet(infoStruct.structure(), infoStruct.nameIndex());
+                break;
+            case "modifiers":
+                context.generate(builder, invocation.getArguments().get(0));
+                builder.structGet(infoStruct.structure(), infoStruct.modifiersIndex());
+                break;
+            case "returnType":
+                context.generate(builder, invocation.getArguments().get(0));
+                builder.structGet(infoStruct.structure(), infoStruct.returnTypeIndex());
+                break;
+            case "parameterCount":
+                WasmGCGenerationUtil.getArrayLengthOfNullable(builder, b -> {
+                    context.generate(b, invocation.getArguments().get(0));
+                    b.structGet(infoStruct.structure(), infoStruct.parameterTypesIndex());
+                });
+                break;
+            case "parameterType": {
+                var paramsType = classInfoProvider.reflectionTypes().derivedClassInfo().array();
+                context.generate(builder, invocation.getArguments().get(0));
+                builder.structGet(infoStruct.structure(), infoStruct.parameterTypesIndex());
+                context.generate(builder, invocation.getArguments().get(1));
+                builder.arrayGet(paramsType);
+                break;
+            }
+            case "checkedExceptionCount":
+                WasmGCGenerationUtil.getArrayLengthOfNullable(builder, b -> {
+                    context.generate(b, invocation.getArguments().get(0));
+                    b.structGet(infoStruct.structure(), infoStruct.checkedExceptionTypesIndex());
+                });
+                break;
+            case "checkedExceptionType": {
+                var exceptionTypesArray = classInfoProvider.reflectionTypes().derivedClassInfo().array();
+                context.generate(builder, invocation.getArguments().get(0));
+                builder.structGet(infoStruct.structure(), infoStruct.checkedExceptionTypesIndex());
+                context.generate(builder, invocation.getArguments().get(1));
+                builder.arrayGet(exceptionTypesArray);
+                break;
+            }
+            case "call": {
+                var isAsync = context.isAsyncMethod(new MethodReference(Method.class, "invoke", Object.class,
+                        Object[].class, Object.class));
+                isAsync |= context.isAsyncMethod(new MethodReference(Constructor.class, "newInstance",
+                        Object[].class, Object.class));
+                context.generate(builder, invocation.getArguments().get(1));
+                context.generate(builder, invocation.getArguments().get(2));
+                context.generate(builder, invocation.getArguments().get(0));
+                builder.structGet(infoStruct.structure(), infoStruct.callerIndex())
+                        .callReference(infoStruct.callerType(), isAsync);
+                break;
+            }
+            case "reflection":
+                context.generate(builder, invocation.getArguments().get(0));
+                builder.structGet(infoStruct.structure(), infoStruct.reflectionIndex());
+                break;
+            default:
+                throw new IllegalArgumentException(invocation.getMethod().getName());
+        }
+    }
+}

@@ -1,160 +1,266 @@
-[![Build Status](https://img.shields.io/jenkins/tests?jobUrl=https%3A%2F%2Fci.eclipse.org%2Fls%2Fjob%2Fjdt-ls-main%2F&logo=jenkins&logoColor=white&style=for-the-badge)](https://ci.eclipse.org/ls/job/jdt-ls-main)
+# Eclipse JDT LS for Browser WASM
 
-Eclipse JDT Language Server
-===========================
+This fork contains a lightweight browser/WASM Java linting build based on Eclipse
+JDT compiler internals. It is intended for VS Code Web and other browser-only
+hosts where the normal Eclipse JDT Language Server process cannot run.
 
-The Eclipse JDT Language Server is a Java language specific implementation of the [Language Server Protocol](https://github.com/Microsoft/language-server-protocol)
-and can be used with any editor that supports the protocol, to offer good support for the Java Language. The server is based on:
+The implementation is not a full port of the original Eclipse JDT LS runtime.
+It reuses ECJ/JDT compiler diagnostics and wraps them in a small browser-safe
+language-server surface that can be loaded from a Web Worker.
 
-* [Eclipse LSP4J](https://github.com/eclipse/lsp4j), the Java binding for the Language Server Protocol,
-* [Eclipse JDT](http://www.eclipse.org/jdt/), which provides Java support (code completion, references, diagnostics...),
-* [M2Eclipse](http://www.eclipse.org/m2e/), which provides Maven support,
-* [Buildship](https://github.com/eclipse/buildship), which provides Gradle support.
+## What Is Included
 
-Features
---------------
-* Supports compiling projects from Java 1.8 through 25
-* Maven pom.xml project support
-* Gradle project support (with experimental Android project import support)
-* Standalone Java files support
-* As-you-type reporting of syntax and compilation errors
-* Code completion
-* Javadoc hovers
-* Organize imports
-* Type search
-* Code actions (quick fixes, source actions & refactorings)
-* Code outline
-* Code folding
-* Code navigation
-* Code lens (references/implementations)
-* Code formatting (on-type/selection/file)
-* Code snippets
-* Highlights (semantic highlighting)
-* Semantic selection
-* Diagnostic tags
-* Call Hierarchy
-* Type Hierarchy
-* Annotation processing support (automatic for Maven projects)
-* Automatic source resolution for classes in jars with maven coordinates
-* Extensibility
+- `browser-jdtls/`
+  - TeaVM WebAssembly GC build for browser Java diagnostics.
+  - ECJ no-codegen compiler diagnostics.
+  - In-memory workspace model for a folder of Java files.
+  - Minimal JSON-RPC/LSP handler for diagnostics.
+  - Standalone Playwright Chromium tests.
 
+- `third_party/teavm/`
+  - Vendored patched TeaVM source used to build `browser-jdtls`.
+  - The patches add ECJ resource support, classlib shims, and WASM fixes needed
+    by this browser build.
 
-Requirements
-------------
+- `integrations/vscode-java-web/`
+  - The modified VS Code Web extension entry points and tests used to integrate
+    this WASM diagnostics engine with Red Hat `vscode-java`.
+  - Prebuilt WASM artifacts are included there for the integration fixture.
 
-The language server requires a runtime environment of **Java 21** (at a minimum) to run. This should either be set in the `JAVA_HOME` environment variable, or on the user's path.
+The original JDT LS source tree is still present in this repository. The browser
+linting work lives in the new module and integration folders above.
 
-Installation
-------------
+## Implemented Browser Linting
 
-There are several options to install eclipse.jdt.ls:
+The browser module currently supports basic Java diagnostics for files and
+folders:
 
-- Download and extract a milestone build from [http://download.eclipse.org/jdtls/milestones/](http://download.eclipse.org/jdtls/milestones/?d)
-- Download and extract a snapshot build from [http://download.eclipse.org/jdtls/snapshots/](http://download.eclipse.org/jdtls/snapshots/?d)
-- Under some Linux distributions you can use the package manager. Search the package repositories for `jdtls` or `eclipse.jdt.ls`.
-- Build it from source. Clone the repository via `git clone` and build the project via `JAVA_HOME=/path/to/java/21 ./mvnw clean verify -U`. Optionally append `-DskipTests=true` to by-pass the tests. This command builds the server into the `./org.eclipse.jdt.ls.product/target/repository` folder.
+- Syntax errors.
+- Type mismatch errors.
+- Unresolved variables, imports, and types.
+- Basic method applicability errors.
+- Common ECJ warnings in covered cases, such as unused locals.
+- Cross-file type resolution inside the in-memory workspace.
+- Revalidation after open/change/close/save/create/delete/rename.
+- Basic compiler source/compliance/target settings.
+- Package mismatch diagnostics for common source roots.
+- Common JDK APIs through synthetic in-memory stubs.
 
-Some editors or editor extensions bundle eclipse.jdt.ls or contain logic to install it. If that is the case, you only need to install the editor extension. For example for Visual Studio Code you can install the [Extension Pack for Java](https://marketplace.visualstudio.com/items?itemName=vscjava.vscode-java-pack) and it will take care of the rest.
+The synthetic JDK coverage includes common pieces of:
 
+- `java.lang`
+- `java.io`
+- `java.util`
+- `java.util.function`
+- `java.util.stream`
+- `java.util.concurrent`
+- `java.nio.file`
+- `java.time`
+- `java.math`
+- `java.net`
+- `java.lang.annotation`
 
-Running from the command line
-------------------------------
+## Current Limits
 
-If you built eclipse.jdt.ls from source, `cd` into `./org.eclipse.jdt.ls.product/target/repository`. If you downloaded a milestone or snapshot build, extract the contents.
+This fork is focused on lightweight linting. It does not currently provide full
+JDT LS parity.
 
-To start the server in the active terminal, adjust the following command as described further below and run it:
+Known limits:
 
-```bash
-java \
-	-Declipse.application=org.eclipse.jdt.ls.core.id1 \
-	-Dosgi.bundles.defaultStartLevel=4 \
-	-Declipse.product=org.eclipse.jdt.ls.core.product \
-	-Dlog.level=ALL \
-	-Xmx1G \
-	--add-modules=ALL-SYSTEM \
-	--add-opens java.base/java.util=ALL-UNNAMED \
-	--add-opens java.base/java.lang=ALL-UNNAMED \
-	-jar ./plugins/org.eclipse.equinox.launcher_1.5.200.v20180922-1751.jar \
-	-configuration ./config_linux \
-	-data /path/to/data
+- No Maven or Gradle project import.
+- No external jar dependency/classpath resolution.
+- No annotation processing.
+- No full Eclipse workspace/build-path model.
+- No full JDK API surface; browser linting uses synthetic JDK stubs.
+- No full set of JDT LS language features such as completion, hover, code
+  actions, refactoring, debug, or project management.
+
+For the narrowed browser goal, the current build is best described as:
+
+> ECJ-backed Java file/folder linting for browser WebAssembly, with a small
+> LSP-compatible diagnostics surface.
+
+## Build Prerequisites
+
+- JDK 21 or compatible modern JDK.
+- Maven via the repository `./mvnw` wrapper.
+- Node.js and npm for Playwright tests.
+- Chromium installed by Playwright or available through Playwright.
+
+## Build Patched TeaVM
+
+`browser-jdtls` depends on the vendored patched TeaVM artifacts. Publish them to
+your local Maven repository first:
+
+```sh
+cd third_party/teavm
+./gradlew :core:publishToMavenLocal :tools:maven:plugin:publishToMavenLocal
+./gradlew :classlib:publishToMavenLocal
 ```
 
-1. Choose a value for `-configuration`: this is the path to your platform's configuration directory. For Linux, use `./config_linux`. For windows, use `./config_win`. For mac/OS X, use `./config_mac`.
-2. Change the filename of the jar in `-jar ./plugins/...` to match the version you built or downloaded.
-3. Choose a value for `-data`: An absolute path to your data directory. eclipse.jdt.ls stores workspace specific information in it. This should be unique per workspace/project.
+The important TeaVM changes are:
 
-If you want to debug eclipse.jdt.ls itself, add `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=1044` right after `java` and ensure nothing else is running on port 1044. If you want to debug from the start of execution, change `suspend=n` to `suspend=y` so the JVM will wait for your debugger prior to starting the server.
+- Include ECJ parser and message resources in the WASM bundle.
+- Add `javax.tools` and `javax.lang.model` classlib substitutions.
+- Add classlib methods/shims needed by ECJ.
+- Add `teavm.wasm.noAsync=true` support for this WASM GC build.
+- Fix classlib/runtime issues encountered while compiling ECJ to WASM.
 
-Running from command line with wrapper script
----------------------------------------------
+## Build Browser JDT LS
 
-There is also a Python wrapper script available that makes the start up of eclipse.jdt.ls more convenient (no need to juggle with Java options etc.). A sample usage is described below. The script requires Python 3.9.
+From the repository root:
 
-```bash
-./org.eclipse.jdt.ls.product/target/repository/bin/jdtls \
-	-configuration ~/.cache/jdtls \
-	-data /path/to/data
+```sh
+./mvnw -q -f browser-jdtls/pom.xml clean process-classes
 ```
 
-All shown Java options will be set by the wrapper script. Please, note that the `-configuration` options points to a user's folder to ensure that the configuration folder in `org.eclipse.jdt.ls.product/target/repository/config_*` remains untouched.
+The generated browser artifacts are written to:
 
-Development Setup
------------------
+```text
+browser-jdtls/target/generated/wasm/teavm/classes.wasm
+browser-jdtls/target/generated/wasm/teavm/classes.wasm-runtime.js
+```
 
-See [Contributing](CONTRIBUTING.md)
+## Run Standalone Browser Tests
 
+Install test dependencies once:
 
-Managing connection types
--------------------------
-The Java Language server supports sockets, named pipes, and standard streams of the server process
-to communicate with the client. Client can communicate its preferred connection methods
-by setting up environment variables or alternatively using system properties (e.g. `-DCLIENT_PORT=...`)
+```sh
+cd browser-jdtls
+npm install
+```
 
-* To use a **plain socket**, set the following environment variables or system properties before starting the server:
-   * `CLIENT_PORT`: the port of the socket to connect to
-   * `CLIENT_HOST`: the host name to connect to. If not set, defaults to `localhost`.
+Run the standalone Chromium test suite:
 
-   The connection will be used for in and output.
+```sh
+npm test
+```
 
-* To use standard streams(stdin, stdout) of the server process do not set any
-of the above environment variables and the server will fall back to standard streams.
+These tests load the TeaVM WASM output in Chromium and call the browser API
+directly.
 
-For socket and named pipes, the client is expected to create the connections
-and wait for the server to connect.
+## Browser API
 
+After loading the generated runtime and WASM, the module exposes:
 
-Feedback
----------
+```js
+const api = await globalThis.browserJdtLsReady;
 
-* File a bug in [GitHub Issues](https://github.com/eclipse/eclipse.jdt.ls/issues).
-* Join the discussion on our [Mattermost channel](https://mattermost.eclipse.org/eclipse/channels/eclipsejdtls)
-* [Tweet](https://twitter.com/GorkemErcan) [us](https://twitter.com/fbricon) with other feedback.
+const diagnostics = JSON.parse(api.lint(
+  "file:///workspace/src/App.java",
+  "public class App { int value() { return \"bad\"; } }"
+));
+```
 
-Clients
--------
-This repository only contains the server implementation. Here are some known clients consuming this server:
+It also exposes a small JSON-RPC/LSP-like handler:
 
-* [vscode-java](https://github.com/redhat-developer/vscode-java) : an extension for Visual Studio Code
-* [ide-java](https://github.com/atom/ide-java) : an extension for Atom
-* [ycmd](https://github.com/Valloric/ycmd) : a code-completion and code-comprehension server for multiple clients
-* [Oni](https://github.com/onivim/oni/wiki/Language-Support#java) : modern modal editing - powered by Neovim.
-* [LSP Java](https://github.com/emacs-lsp/lsp-java) : a Java LSP client for Emacs
-* [Eclipse Theia](https://github.com/theia-ide/theia) : Theia is a cloud & desktop IDE framework implemented in TypeScript
-* [Eclipse IDE JDT.LS](https://github.com/redhat-developer/eclipseide-jdtls/) : an extension for Eclipse IDE
-* [coc-java](https://github.com/neoclide/coc-java) : an extension for [coc.nvim](https://github.com/neoclide/coc.nvim)
-* [MS Paint IDE](https://github.com/MSPaintIDE/MSPaintIDE) : an IDE for programming in MS Paint
-* [nvim-jdtls](https://github.com/mfussenegger/nvim-jdtls) : an extension for Neovim
-* [multilspy from monitors4codegen](https://github.com/microsoft/monitors4codegen#4-multilspy) : A language-agnostic LSP client in Python, with a library interface. Intended to be used to build applications around language servers
-* [OpenSumi](https://opensumi.com/en) : A framework that helps you quickly build Cloud or Desktop IDE products.
+```js
+const messages = JSON.parse(api.handle(JSON.stringify({
+  jsonrpc: "2.0",
+  method: "textDocument/didOpen",
+  params: {
+    textDocument: {
+      uri: "file:///workspace/src/App.java",
+      text: "public class App { int value() { return \"bad\"; } }"
+    }
+  }
+})));
+```
 
-Continuous Integration Builds
------------------------------
-Our [CI server](https://ci.eclipse.org/ls/) publishes the server binaries to [http://download.eclipse.org/jdtls/snapshots/](http://download.eclipse.org/jdtls/snapshots/?d).
+Supported messages include:
 
-P2 repositories are available under [http://download.eclipse.org/jdtls/snapshots/repository/](http://download.eclipse.org/jdtls/snapshots/repository?d).
+- `initialize`
+- `shutdown`
+- `textDocument/didOpen`
+- `textDocument/didChange`
+- `textDocument/didClose`
+- `workspace/didChangeWatchedFiles`
+- `workspace/didChangeConfiguration`
 
-Milestone builds are available under [http://download.eclipse.org/jdtls/milestones/](http://download.eclipse.org/jdtls/milestones/?d).
+Diagnostics are returned as `textDocument/publishDiagnostics` messages.
 
-License
--------
-EPL 2.0, See [LICENSE](LICENSE) file.
+## VS Code Web Integration
+
+The `integrations/vscode-java-web/` directory contains the Web extension pieces
+used with Red Hat `vscode-java`:
+
+- `src/webExtension.ts`
+- `src/browserJdtLsWorker.ts`
+- `src/generated/browser-jdtls/classes.wasm-runtime.*`
+- `resources/browser-jdtls/teavm/classes.wasm`
+- `resources/browser-jdtls/teavm/classes.wasm-runtime.js`
+- `test-web/browser-jdtls-web.spec.mjs`
+- `test-web/playwright.config.mjs`
+
+To use these with a `vscode-java` checkout:
+
+1. Copy `src/webExtension.ts` into the extension `src/` directory.
+2. Copy `src/browserJdtLsWorker.ts` into the extension `src/` directory.
+3. Copy `src/generated/browser-jdtls/` into the extension `src/generated/`
+   directory.
+4. Copy `resources/browser-jdtls/` into the extension `resources/` directory.
+5. Add a browser extension entry in `package.json`:
+
+```json
+"browser": "./dist/webExtension"
+```
+
+6. Enable Java activation in web workspaces, for example:
+
+```json
+"activationEvents": [
+  "onLanguage:java"
+]
+```
+
+7. Add webpack entries for:
+
+- `src/webExtension.ts` as `dist/webExtension.js`
+- `src/browserJdtLsWorker.ts` as `dist/browserJdtLsWorker.js`
+
+8. Build the extension and run the Playwright Web tests.
+
+The integration starts a browser Worker, loads the WASM engine, preloads
+workspace `**/*.java` files, and forwards diagnostics through
+`vscode-languageclient/browser`.
+
+## Refresh VS Code Web Artifacts
+
+After rebuilding `browser-jdtls`, refresh the integration artifacts:
+
+```sh
+cp browser-jdtls/target/generated/wasm/teavm/classes.wasm \
+  integrations/vscode-java-web/resources/browser-jdtls/teavm/classes.wasm
+
+cp browser-jdtls/target/generated/wasm/teavm/classes.wasm-runtime.js \
+  integrations/vscode-java-web/resources/browser-jdtls/teavm/classes.wasm-runtime.js
+
+cp integrations/vscode-java-web/resources/browser-jdtls/teavm/classes.wasm-runtime.js \
+  integrations/vscode-java-web/src/generated/browser-jdtls/classes.wasm-runtime.js
+```
+
+When bundling for VS Code Web, the generated runtime must not fall back to Node
+filesystem APIs. The current integration runtime contains a guard for that path.
+
+## Verification Status
+
+The current implementation has been verified with Playwright Chromium in two
+ways:
+
+- Standalone browser WASM tests for `browser-jdtls`.
+- VS Code Web extension tests using the worker integration.
+
+The latest local verification before packaging this fork passed:
+
+- `browser-jdtls`: 29 Chromium tests.
+- `vscode-java` Web integration: 12 Chromium tests.
+
+## Repository Notes
+
+This fork intentionally keeps the original JDT LS source tree, but the browser
+WASM work is additive. The original server still represents the full desktop
+JDT LS implementation; `browser-jdtls` is the browser-oriented diagnostics
+subset.
+
+For license and contribution information inherited from Eclipse JDT LS, see
+`LICENSE`, `CONTRIBUTING.md`, and the Eclipse project documentation.

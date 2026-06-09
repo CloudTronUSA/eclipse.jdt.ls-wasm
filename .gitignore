@@ -2,6 +2,7 @@
 .DS_Store
 target/
 bin/
+test-results/
 **/lib/
 !org.eclipse.jdt.ls.tests/projects/singlefile/simple/lib/
 !org.eclipse.jdt.ls.tests/projects/eclipse/testnullable2/lib/
@@ -12,3 +13,12 @@ bin/
 maven-wrapper.jar
 *.iml
 .idea
+
+# Keep vendored TeaVM source visible even though the upstream JDT LS ignore
+# rules ignore generic lib/bin folders. Generated outputs remain ignored.
+!third_party/
+!third_party/**
+third_party/teavm/.gradle/
+third_party/teavm/**/build/
+third_party/teavm/**/target/
+third_party/teavm/**/node_modules/

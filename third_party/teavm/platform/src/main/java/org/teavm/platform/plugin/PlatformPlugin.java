@@ -1,0 +1,179 @@
+/*
+ *  Copyright 2014 Alexey Andreev.
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *       http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+package org.teavm.platform.plugin;
+
+import java.util.ArrayList;
+import java.util.List;
+import org.teavm.ast.InvocationExpr;
+import org.teavm.backend.c.TeaVMCHost;
+import org.teavm.backend.c.intrinsic.Intrinsic;
+import org.teavm.backend.c.intrinsic.IntrinsicContext;
+import org.teavm.backend.javascript.TeaVMJavaScriptHost;
+import org.teavm.backend.wasm.TeaVMWasmGCHost;
+import org.teavm.interop.Async;
+import org.teavm.interop.PlatformMarker;
+import org.teavm.model.ClassReader;
+import org.teavm.model.MethodReader;
+import org.teavm.model.MethodReference;
+import org.teavm.platform.Platform;
+import org.teavm.platform.metadata.MetadataGenerator;
+import org.teavm.platform.metadata.Resource;
+import org.teavm.platform.metadata.ResourceArray;
+import org.teavm.platform.plugin.wasmgc.ResourceCustomTypeMapper;
+import org.teavm.platform.plugin.wasmgc.ResourceDependencySupport;
+import org.teavm.platform.plugin.wasmgc.ResourceInterfaceToClassTransformer;
+import org.teavm.platform.plugin.wasmgc.ResourceMapHelper;
+import org.teavm.platform.plugin.wasmgc.WasmGCResourceArrayIntrinsic;
+import org.teavm.platform.plugin.wasmgc.WasmGCResourceMapHelperIntrinsic;
+import org.teavm.platform.plugin.wasmgc.WasmGCResourceMetadataIntrinsicFactory;
+import org.teavm.platform.plugin.wasmgc.WasmGCResourceMethodIntrinsicFactory;
+import org.teavm.vm.TeaVMPluginUtil;
+import org.teavm.vm.spi.TeaVMHost;
+import org.teavm.vm.spi.TeaVMPlugin;
+
+public class PlatformPlugin implements TeaVMPlugin, MetadataRegistration {
+    private MetadataProviderTransformer metadataTransformer = new MetadataProviderTransformer();
+    private List<MetadataGeneratorConsumer> metadataGeneratorConsumers = new ArrayList<>();
+
+    @Override
+    public void install(TeaVMHost host) {
+        if (host.getExtension(TeaVMJavaScriptHost.class) != null) {
+            host.add(metadataTransformer);
+            host.add(new ResourceTransformer());
+            host.add(new ResourceAccessorTransformer(host));
+            host.add(new ResourceAccessorDependencyListener());
+            TeaVMJavaScriptHost jsHost = host.getExtension(TeaVMJavaScriptHost.class);
+            jsHost.addGeneratorProvider(context -> {
+                ClassReader cls = context.getClassSource().get(context.getMethod().getClassName());
+                if (cls == null) {
+                    return null;
+                }
+                MethodReader method = cls.getMethod(context.getMethod().getDescriptor());
+                if (method == null) {
+                    return null;
+                }
+                return method.getAnnotations().get(Async.class.getName()) != null
+                        ? new AsyncMethodGenerator() : null;
+            });
+            host.add(new AsyncDependencyListener());
+            jsHost.addVirtualMethods(new AsyncMethodGenerator());
+
+            metadataGeneratorConsumers.add((method, constructor, generator) -> jsHost.add(method,
+                    new MetadataProviderNativeGenerator(generator, constructor)));
+            host.add(new StringAmplifierTransformer());
+        }
+
+        if (!isBootstrap()) {
+            var cHost = host.getExtension(TeaVMCHost.class);
+            if (cHost != null) {
+                installC(host, cHost);
+            }
+        }
+
+        var wasmGCHost = host.getExtension(TeaVMWasmGCHost.class);
+        if (wasmGCHost != null) {
+            installWasmGC(host, wasmGCHost);
+        }
+
+        var isJs = host.getExtension(TeaVMJavaScriptHost.class) != null;
+        host.add(new AsyncMethodProcessor(!isJs));
+        if (!isBootstrap()) {
+            TeaVMPluginUtil.handleNatives(host, Platform.class);
+        }
+
+        host.registerService(MetadataRegistration.class, this);
+    }
+
+    private void installC(TeaVMHost host, TeaVMCHost cHost) {
+        host.add(metadataTransformer);
+        host.add(new StringAmplifierTransformer());
+        host.add(new ResourceLowLevelTransformer());
+        MetadataCIntrinsic metadataCIntrinsic = new MetadataCIntrinsic();
+        cHost.addGenerator(ctx -> {
+            metadataCIntrinsic.init(ctx.getClassSource(), ctx.getResourceProvider(), ctx.getClassLoader(),
+                    ctx.getServices(), ctx.getProperties());
+            return metadataCIntrinsic;
+        });
+        metadataGeneratorConsumers.add(metadataCIntrinsic::addGenerator);
+        cHost.addIntrinsic(ctx -> new ResourceReadCIntrinsic(ctx.getClassSource()));
+        cHost.addIntrinsic(ctx -> new Intrinsic() {
+            @Override
+            public boolean canHandle(MethodReference method) {
+                return method.getClassName().equals(StringAmplifier.class.getName());
+            }
+
+            @Override
+            public void apply(IntrinsicContext context, InvocationExpr invocation) {
+                context.emit(invocation.getArguments().get(0));
+            }
+        });
+    }
+
+    private void installWasmGC(TeaVMHost host, TeaVMWasmGCHost wasmGCHost) {
+        wasmGCHost.contributeToCodeGen((ctx, reg) -> {
+            reg.inlineIntrinsics().registerIntrinsic(StringAmplifier.class, (invocation, context, builder) -> {
+                context.generate(builder, invocation.getArguments().get(0));
+            });
+        });
+
+        host.add(new ResourceInterfaceToClassTransformer());
+        var dependencySupport = new ResourceDependencySupport();
+        host.add(dependencySupport);
+        wasmGCHost.addCustomTypeMapperFactory(context -> new ResourceCustomTypeMapper(
+                context.module(),
+                context.typeMapper(),
+                context.classes(),
+                context.names()
+        ));
+        wasmGCHost.contributeToCodeGen(new WasmGCResourceMethodIntrinsicFactory());
+        var metadataIntrinsicFactory = new WasmGCResourceMetadataIntrinsicFactory(host);
+        wasmGCHost.contributeToCodeGen(metadataIntrinsicFactory);
+
+        wasmGCHost.contributeToCodeGen((ctx, reg) -> {
+            var arrayIntrinsic = new WasmGCResourceArrayIntrinsic(ctx.typeMapper());
+            reg.inlineIntrinsics().registerIntrinsic(new MethodReference(ResourceArray.class, "size", int.class),
+                    arrayIntrinsic);
+            reg.inlineIntrinsics().registerIntrinsic(new MethodReference(ResourceArray.class, "get", int.class,
+                    Resource.class), arrayIntrinsic);
+            reg.inlineIntrinsics().registerIntrinsic(ResourceMapHelper.class,
+                    new WasmGCResourceMapHelperIntrinsic(ctx.typeMapper()));
+        });
+
+        metadataGeneratorConsumers.add((constructor, target, generator) -> {
+            dependencySupport.addMetadataMethod(target);
+            metadataIntrinsicFactory.addGenerator(target, generator);
+        });
+    }
+
+    @Override
+    public void register(MethodReference method, MetadataGenerator generator) {
+        MethodReference constructor = new MethodReference(method.getClassName(), method.getName() + "$$create",
+                method.getSignature());
+        for (MetadataGeneratorConsumer consumer : metadataGeneratorConsumers) {
+            consumer.consume(constructor, method, generator);
+        }
+        metadataTransformer.addMetadataMethod(method);
+    }
+
+    interface MetadataGeneratorConsumer {
+        void consume(MethodReference constructor, MethodReference target, MetadataGenerator generator);
+    }
+
+    @PlatformMarker
+    private static boolean isBootstrap() {
+        return false;
+    }
+}
