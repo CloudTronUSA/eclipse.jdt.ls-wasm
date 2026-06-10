@@ -60,12 +60,64 @@ From the repository root:
 Outputs:
 
 ```text
+org.eclipse.jdt.ls.web/target/generated/package.json
+org.eclipse.jdt.ls.web/target/generated/web-jdt-ls.ts
+org.eclipse.jdt.ls.web/target/generated/web-jdt-ls.js
+org.eclipse.jdt.ls.web/target/generated/web-jdt-ls.cjs
+org.eclipse.jdt.ls.web/target/generated/web-jdt-ls.d.ts
 org.eclipse.jdt.ls.web/target/generated/wasm/teavm/classes.wasm
 org.eclipse.jdt.ls.web/target/generated/wasm/teavm/classes.wasm-runtime.js
 org.eclipse.jdt.ls.web/target/generated/js/teavm/classes.js
 ```
 
+The generated directory is also the npm package root:
+
+```sh
+npm pack org.eclipse.jdt.ls.web/target/generated
+```
+
 ## API
+
+Use the target-agnostic browser loader when possible:
+
+```ts
+import { load } from "eclipse-jdt-ls-web";
+
+const jdtls = await load();
+const diagnosticsJson = jdtls.lint("file:///Example.java", "class Example {}");
+console.log(jdtls.target, diagnosticsJson);
+```
+
+For direct browser use without an npm bundler:
+
+```html
+<script type="module">
+  import { load } from "./web-jdt-ls.js";
+
+  const jdtls = await load();
+  console.log(jdtls.target);
+</script>
+```
+
+`load()` tries the WASM GC build first. If the browser cannot load it,
+including when WebAssembly GC or JSPI-related support is missing, the loader
+falls back to the JavaScript build and returns the same `lint`,
+`lintProcessing`, and `handle` functions. The returned `target` is `"wasm"` or
+`"js"`; if fallback was used, `fallbackError` contains the original WASM loading
+failure.
+
+By default, the loader expects this generated layout to be served from one
+directory:
+
+```text
+web-jdt-ls.js
+wasm/teavm/classes.wasm
+wasm/teavm/classes.wasm-runtime.js
+js/teavm/classes.js
+```
+
+Custom paths can be supplied with `baseUrl`, `wasmRuntimeUrl`, `wasmUrl`, or
+`jsUrl`.
 
 The TeaVM module exports:
 

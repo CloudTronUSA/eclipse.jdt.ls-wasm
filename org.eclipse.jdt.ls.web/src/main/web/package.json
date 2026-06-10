@@ -1,0 +1,34 @@
+{
+  "name": "eclipse-jdt-ls-web",
+  "version": "1.59.0-SNAPSHOT",
+  "description": "Browser-targeted Eclipse JDT LS web linter with WebAssembly GC and JavaScript fallback builds.",
+  "license": "EPL-2.0",
+  "type": "module",
+  "main": "./web-jdt-ls.cjs",
+  "module": "./web-jdt-ls.js",
+  "types": "./web-jdt-ls.d.ts",
+  "files": [
+    "web-jdt-ls.ts",
+    "web-jdt-ls.js",
+    "web-jdt-ls.cjs",
+    "web-jdt-ls.d.ts",
+    "wasm/teavm/classes.wasm",
+    "wasm/teavm/classes.wasm-runtime.js",
+    "wasm/teavm/classes.wasm.map",
+    "js/teavm/classes.js",
+    "js/teavm/classes.js.map",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./web-jdt-ls.d.ts",
+      "import": "./web-jdt-ls.js",
+      "require": "./web-jdt-ls.cjs",
+      "default": "./web-jdt-ls.js"
+    },
+    "./web-jdt-ls.ts": "./web-jdt-ls.ts",
+    "./web-jdt-ls.js": "./web-jdt-ls.js"
+  },
+  "sideEffects": false
+}

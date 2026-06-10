@@ -148,6 +148,41 @@
 					</execution>
 				</executions>
 			</plugin>
+			<plugin>
+				<artifactId>maven-resources-plugin</artifactId>
+				<version>3.3.1</version>
+				<executions>
+					<execution>
+						<id>copy-web-loader</id>
+						<phase>process-classes</phase>
+						<goals>
+							<goal>copy-resources</goal>
+						</goals>
+						<configuration>
+							<outputDirectory>${project.build.directory}/generated</outputDirectory>
+							<resources>
+								<resource>
+									<directory>${project.basedir}/src/main/web</directory>
+									<includes>
+										<include>*.cjs</include>
+										<include>*.d.ts</include>
+										<include>*.js</include>
+										<include>*.json</include>
+										<include>*.md</include>
+										<include>*.ts</include>
+									</includes>
+								</resource>
+								<resource>
+									<directory>${project.basedir}/..</directory>
+									<includes>
+										<include>LICENSE</include>
+									</includes>
+								</resource>
+							</resources>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
 </project>
