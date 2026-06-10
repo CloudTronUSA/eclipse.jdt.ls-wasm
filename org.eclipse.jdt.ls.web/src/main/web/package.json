@@ -14,7 +14,6 @@
     "web-jdt-ls.d.ts",
     "wasm/teavm/classes.wasm",
     "wasm/teavm/classes.wasm-runtime.js",
-    "wasm/teavm/classes.wasm.map",
     "js/teavm/classes.js",
     "js/teavm/classes.js.map",
     "README.md",
