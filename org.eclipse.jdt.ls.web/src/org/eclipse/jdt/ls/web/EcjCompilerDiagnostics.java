@@ -319,6 +319,12 @@ final class EcjCompilerDiagnostics {
 					"package java.time; public final class Duration implements java.lang.Comparable<Duration> { public static Duration ofSeconds(long seconds) { return null; } public static Duration between(Instant startInclusive, Instant endExclusive) { return null; } public long toSeconds() { return 0; } public int compareTo(Duration other) { return 0; } }");
 			register("java.time.format.DateTimeFormatter",
 					"package java.time.format; public final class DateTimeFormatter { public static final DateTimeFormatter ISO_LOCAL_DATE = null; public static DateTimeFormatter ofPattern(String pattern) { return null; } public String format(java.time.temporal.TemporalAccessor temporal) { return null; } }");
+
+			sourceTypes.clear();
+			for (MemoryCompilationUnit unit : workspaceUnits.values()) {
+				register(unit);
+			}
+			register(userUnit);
 		}
 
 		@Override

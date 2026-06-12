@@ -59,11 +59,7 @@ final class ProcessingSketch {
 		StringWriter writer = new StringWriter();
 		PreprocessorResult result;
 		try {
-			result = PdePreprocessor.builderFor(SKETCH_CLASS)
-					.setTabSize(2)
-					.setParseTreeListenerFactory(WebPdeParseTreeListener::new)
-					.build()
-					.write(writer, unified.toString());
+			result = preprocessWithRetry(writer, unified.toString());
 		} catch (SketchException ex) {
 			return new ProcessingSketch(syntheticUri(entrypointUri), "",
 					unified.toString(), OffsetMapper.EMPTY_MAPPER, tabs,
@@ -86,6 +82,26 @@ final class ProcessingSketch {
 		return new ProcessingSketch(syntheticUri(entrypointUri), generatedSource,
 				unified.toString(), transform.getMapper(), tabs,
 				sourceUris(pdes), preprocessDiagnostics);
+	}
+
+	private static PreprocessorResult preprocessWithRetry(StringWriter writer, String source) throws SketchException {
+		try {
+			return preprocess(writer, source);
+		} catch (IllegalArgumentException ex) {
+			try {
+				return preprocess(new StringWriter(), source);
+			} catch (IllegalArgumentException retryFailure) {
+				throw ex;
+			}
+		}
+	}
+
+	private static PreprocessorResult preprocess(StringWriter writer, String source) throws SketchException {
+		return PdePreprocessor.builderFor(SKETCH_CLASS)
+				.setTabSize(2)
+				.setParseTreeListenerFactory(WebPdeParseTreeListener::new)
+				.build()
+				.write(writer, source);
 	}
 
 	boolean hasPreprocessDiagnostics() {

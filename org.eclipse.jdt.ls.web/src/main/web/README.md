@@ -152,6 +152,9 @@ interface WebJdtLsApi {
 `complete`, `hover`, and `signatureHelp` return JSON strings shaped like LSP
 responses. Method completion items use `CompletionItemKind.Method` and insert
 only the method name. For example, `text` inserts `text`, not `text()`.
+Diagnostic requests return error diagnostics for compiler runtime failures,
+including WASM traps raised during ECJ analysis, instead of throwing through the
+public loader API.
 
 ## Loader Paths
 

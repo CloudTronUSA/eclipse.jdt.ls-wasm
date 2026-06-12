@@ -62,16 +62,146 @@ function createApi(target, exports, raw) {
 	if (missing.length > 0) {
 		throw new Error("JDT LS web " + target + " build is missing export(s): " + missing.join(", "));
 	}
+	const lint = exports.lint;
+	const lintProcessing = exports.lintProcessing;
+	const complete = exports.complete;
+	const hover = exports.hover;
+	const signatureHelp = exports.signatureHelp;
+	const handle = exports.handle;
 	return {
 		target,
 		raw,
-		lint: exports.lint,
-		lintProcessing: exports.lintProcessing,
-		complete: exports.complete,
-		hover: exports.hover,
-		signatureHelp: exports.signatureHelp,
-		handle: exports.handle
+		lint: (uri, source) => {
+			try {
+				return lint(uri, source);
+			} catch (error) {
+				return diagnosticsJson(source, "Java analysis failed", error);
+			}
+		},
+		lintProcessing: (entrypointUri, entrypointSource, additionalPdesJson) => {
+			try {
+				return lintProcessing(entrypointUri, entrypointSource, additionalPdesJson);
+			} catch (error) {
+				return mappedDiagnosticsJson(entrypointUri, entrypointSource, "Processing preprocessing failed", error);
+			}
+		},
+		complete: (uri, source, line, character) => {
+			try {
+				return complete(uri, source, line, character);
+			} catch (error) {
+				return "[]";
+			}
+		},
+		hover: (uri, source, line, character) => {
+			try {
+				return hover(uri, source, line, character);
+			} catch (error) {
+				return "null";
+			}
+		},
+		signatureHelp: (uri, source, line, character) => {
+			try {
+				return signatureHelp(uri, source, line, character);
+			} catch (error) {
+				return "null";
+			}
+		},
+		handle: payload => {
+			try {
+				return handle(payload);
+			} catch (error) {
+				return handleFailureJson(payload, error);
+			}
+		}
 	};
+}
+
+function handleFailureJson(payload, error) {
+	let request;
+	try {
+		request = JSON.parse(payload);
+	} catch (_error) {
+		return "";
+	}
+	const method = request?.method;
+	if (method === "textDocument/didOpen" || method === "textDocument/didChange" || method === "java/browserJdtLs/workspaceSources") {
+		const uri = request?.params?.textDocument?.uri ?? request?.params?.uri ?? "";
+		const source = method === "textDocument/didChange"
+			? lastText(request?.params?.contentChanges)
+			: request?.params?.textDocument?.text ?? request?.params?.text ?? "";
+		return publishDiagnosticsJson(uri, [diagnostic(source, "Java analysis failed", error)]);
+	}
+	if (method === "java/webJdtLs/processingSketch") {
+		const uri = request?.params?.entrypointUri ?? "";
+		const source = request?.params?.entrypointText ?? "";
+		return publishDiagnosticsJson(uri, [diagnostic(source, "Processing preprocessing failed", error)]);
+	}
+	const id = request?.id;
+	if (id === undefined || id === null) {
+		return "";
+	}
+	return JSON.stringify({
+		jsonrpc: "2.0",
+		id,
+		error: {
+			code: -32603,
+			message: "JDT LS web request failed: " + exceptionSummary(error)
+		}
+	});
+}
+
+function lastText(changes) {
+	if (!Array.isArray(changes) || changes.length === 0) {
+		return "";
+	}
+	const text = changes[changes.length - 1]?.text;
+	return typeof text === "string" ? text : "";
+}
+
+function diagnosticsJson(source, prefix, error) {
+	return JSON.stringify([diagnostic(source, prefix, error)]);
+}
+
+function mappedDiagnosticsJson(uri, source, prefix, error) {
+	const data = diagnostic(source, prefix, error);
+	return JSON.stringify([{ uri, ...data }]);
+}
+
+function publishDiagnosticsJson(uri, diagnostics) {
+	return JSON.stringify([{
+		jsonrpc: "2.0",
+		method: "textDocument/publishDiagnostics",
+		params: { uri, diagnostics }
+	}]);
+}
+
+function diagnostic(source, prefix, error) {
+	const endCharacter = Math.max(1, firstLineLength(source));
+	return {
+		range: {
+			start: { line: 0, character: 0 },
+			end: { line: 0, character: endCharacter }
+		},
+		severity: 1,
+		source: "Java",
+		code: 0,
+		message: prefix + ": " + exceptionSummary(error)
+	};
+}
+
+function firstLineLength(source) {
+	if (!source) {
+		return 1;
+	}
+	const newline = source.indexOf("\n");
+	return newline >= 0 ? newline : source.length;
+}
+
+function exceptionSummary(error) {
+	if (error instanceof Error) {
+		return error.name + (error.message ? ": " + error.message : "");
+	}
+	return String(error);
 }
 
 function loadScript(url) {

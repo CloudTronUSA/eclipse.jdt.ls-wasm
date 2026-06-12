@@ -12,6 +12,7 @@ import java.util.Set;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.AbstractVariableDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.AllocationExpression;
 import org.eclipse.jdt.internal.compiler.ast.Assignment;
 import org.eclipse.jdt.internal.compiler.ast.BinaryExpression;
 import org.eclipse.jdt.internal.compiler.ast.Block;
@@ -430,6 +431,15 @@ final class EcjSemanticDiagnostics {
 			checkExpression(binary.right, locals);
 			return;
 		}
+		if (expression instanceof AllocationExpression) {
+			AllocationExpression allocation = (AllocationExpression) expression;
+			if (allocation.arguments != null) {
+				for (Expression argument : allocation.arguments) {
+					checkExpression(argument, locals);
+				}
+			}
+			return;
+		}
 		if (expression instanceof MessageSend) {
 			MessageSend send = (MessageSend) expression;
 			if (send.receiver == null || send.receiver instanceof ThisReference && send.receiver.isImplicitThis()) {
@@ -537,6 +547,9 @@ final class EcjSemanticDiagnostics {
 		if (expression instanceof Assignment) {
 			return inferType(((Assignment) expression).lhs, locals);
 		}
+		if (expression instanceof AllocationExpression) {
+			return typeName(((AllocationExpression) expression).type);
+		}
 		if (expression instanceof BinaryExpression) {
 			BinaryExpression binary = (BinaryExpression) expression;
 			int operator = (binary.bits & ASTNode.OperatorMASK) >> ASTNode.OperatorSHIFT;
@@ -584,6 +597,9 @@ final class EcjSemanticDiagnostics {
 			return true;
 		}
 		if (expected.equals(actual)) {
+			return true;
+		}
+		if ("Object".equals(expected) && !isPrimitive(actual)) {
 			return true;
 		}
 		if ("null".equals(actual)) {

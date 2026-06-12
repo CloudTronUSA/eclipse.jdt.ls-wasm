@@ -30,7 +30,7 @@ public final class EcjDiagnosticsEngine {
 	private WebCompilerConfiguration compilerConfiguration = WebCompilerConfiguration.DEFAULT;
 
 	public String lint(String uri, String source) {
-		List<DiagnosticData> diagnostics = diagnose(uri, source, Collections.emptyMap());
+		List<DiagnosticData> diagnostics = safeDiagnose(uri, source, Collections.emptyMap());
 		StringBuilder json = new StringBuilder();
 		json.append('[');
 		for (int i = 0; i < diagnostics.size(); i++) {
@@ -139,10 +139,14 @@ public final class EcjDiagnosticsEngine {
 	}
 
 	private static DiagnosticData processingFailureDiagnostic(String source, Throwable ex) {
-		String message = ex.getMessage();
-		if (message == null || message.isEmpty()) {
-			message = ex.getClass().getSimpleName();
-		}
+		return failureDiagnostic(source, "Processing preprocessing failed", ex);
+	}
+
+	private static DiagnosticData analysisFailureDiagnostic(String source, Throwable ex) {
+		return failureDiagnostic(source, "Java analysis failed", ex);
+	}
+
+	private static DiagnosticData failureDiagnostic(String source, String prefix, Throwable ex) {
 		int line = 0;
 		int character = 0;
 		int endCharacter = 1;
@@ -152,7 +156,50 @@ public final class EcjDiagnosticsEngine {
 		}
 		endCharacter = Math.max(character + 1, endCharacter);
 		return new DiagnosticData(line, character, line, endCharacter, 1, 0,
-				"Processing preprocessing failed: " + message);
+				prefix + ": " + exceptionSummary(ex));
+	}
+
+	private static String exceptionSummary(Throwable ex) {
+		StringBuilder summary = new StringBuilder();
+		appendException(summary, ex);
+		Throwable cause = ex.getCause();
+		int depth = 0;
+		while (cause != null && cause != ex && depth++ < 3) {
+			summary.append("; caused by ");
+			appendException(summary, cause);
+			cause = cause.getCause();
+		}
+		String compilerFrame = compilerFrame(ex);
+		if (!compilerFrame.isEmpty()) {
+			summary.append(" at ").append(compilerFrame);
+		}
+		return summary.toString();
+	}
+
+	private static void appendException(StringBuilder summary, Throwable ex) {
+		String type = ex.getClass().getSimpleName();
+		String message = ex.getMessage();
+		if (message == null || message.isEmpty()) {
+			summary.append(type);
+		} else if (message.startsWith(type + ":")) {
+			summary.append(message);
+		} else {
+			summary.append(type).append(": ").append(message);
+		}
+	}
+
+	private static String compilerFrame(Throwable ex) {
+		try {
+			StackTraceElement[] trace = ex.getStackTrace();
+			for (StackTraceElement frame : trace) {
+				String className = frame.getClassName();
+				if (className != null && className.startsWith("org.eclipse.jdt.internal.compiler.")) {
+					return frame.toString();
+				}
+			}
+		} catch (Throwable ignored) {
+		}
+		return "";
 	}
 
 	public String publishDiagnostics(String uri, String source) {
@@ -198,7 +245,7 @@ public final class EcjDiagnosticsEngine {
 		if (source == null) {
 			source = "";
 		}
-		return publishDiagnostics(uri, diagnose(uri, source, allSources()));
+		return publishDiagnostics(uri, safeDiagnose(uri, source, allSources()));
 	}
 
 	private String publishAllDiagnostics() {
@@ -210,7 +257,7 @@ public final class EcjDiagnosticsEngine {
 			if (index++ > 0) {
 				json.append(',');
 			}
-			appendPublishDiagnostics(json, entry.getKey(), diagnose(entry.getKey(), entry.getValue(), allSources));
+			appendPublishDiagnostics(json, entry.getKey(), safeDiagnose(entry.getKey(), entry.getValue(), allSources));
 		}
 		json.append(']');
 		return json.toString();
@@ -239,14 +286,14 @@ public final class EcjDiagnosticsEngine {
 		if (restoredSource == null) {
 			appendPublishDiagnostics(json, uri, Collections.emptyList());
 		} else {
-			appendPublishDiagnostics(json, uri, diagnose(uri, restoredSource, allSources));
+			appendPublishDiagnostics(json, uri, safeDiagnose(uri, restoredSource, allSources));
 		}
 		for (Map.Entry<String, String> entry : allSources.entrySet()) {
 			if (entry.getKey().equals(uri)) {
 				continue;
 			}
 			json.append(',');
-			appendPublishDiagnostics(json, entry.getKey(), diagnose(entry.getKey(), entry.getValue(), allSources));
+			appendPublishDiagnostics(json, entry.getKey(), safeDiagnose(entry.getKey(), entry.getValue(), allSources));
 		}
 		json.append(']');
 		return json.toString();
@@ -266,7 +313,7 @@ public final class EcjDiagnosticsEngine {
 		Map<String, String> allSources = allSources();
 		for (Map.Entry<String, String> entry : allSources.entrySet()) {
 			json.append(',');
-			appendPublishDiagnostics(json, entry.getKey(), diagnose(entry.getKey(), entry.getValue(), allSources));
+			appendPublishDiagnostics(json, entry.getKey(), safeDiagnose(entry.getKey(), entry.getValue(), allSources));
 		}
 		json.append(']');
 		return json.toString();
@@ -282,7 +329,7 @@ public final class EcjDiagnosticsEngine {
 		Map<String, String> allSources = allSources();
 		for (Map.Entry<String, String> entry : allSources.entrySet()) {
 			json.append(',');
-			appendPublishDiagnostics(json, entry.getKey(), diagnose(entry.getKey(), entry.getValue(), allSources));
+			appendPublishDiagnostics(json, entry.getKey(), safeDiagnose(entry.getKey(), entry.getValue(), allSources));
 		}
 		json.append(']');
 		return json.toString();
@@ -317,7 +364,7 @@ public final class EcjDiagnosticsEngine {
 			if (index++ > 0) {
 				json.append(',');
 			}
-			appendPublishDiagnostics(json, entry.getKey(), diagnose(entry.getKey(), entry.getValue(), allSources));
+			appendPublishDiagnostics(json, entry.getKey(), safeDiagnose(entry.getKey(), entry.getValue(), allSources));
 		}
 		json.append(']');
 		return json.toString();
@@ -356,6 +403,14 @@ public final class EcjDiagnosticsEngine {
 		return diagnose(unit, source, workspaceSources);
 	}
 
+	private List<DiagnosticData> safeDiagnose(String uri, String source, Map<String, String> workspaceSources) {
+		try {
+			return diagnose(uri, source, workspaceSources);
+		} catch (Throwable ex) {
+			return Collections.singletonList(analysisFailureDiagnostic(source, ex));
+		}
+	}
+
 	private List<DiagnosticData> diagnose(MemoryCompilationUnit unit, String source, Map<String, String> workspaceSources) {
 		Map<String, MemoryCompilationUnit> workspaceUnits = workspaceUnits(workspaceSources);
 		try {
@@ -370,18 +425,33 @@ public final class EcjDiagnosticsEngine {
 				}
 				return compilerDiagnostics;
 			}
-		} catch (Throwable ignored) {
+		} catch (Throwable ex) {
+			List<DiagnosticData> diagnostics = new ArrayList<>();
+			try {
+				diagnostics.addAll(parseSupplementalDiagnostics(unit, source, workspaceUnits));
+			} catch (Throwable ignored) {
+			}
+			diagnostics.add(analysisFailureDiagnostic(source, ex));
+			return diagnostics;
 		}
 		return parseSupplementalDiagnostics(unit, source, workspaceUnits);
 	}
 
 	private List<DiagnosticData> diagnoseCompilerOnly(MemoryCompilationUnit unit, String source,
 			Map<String, String> workspaceSources) {
+		Map<String, MemoryCompilationUnit> workspaceUnits = workspaceUnits(workspaceSources);
 		try {
-			return toDiagnostics(source, new EcjCompilerDiagnostics().diagnose(unit, workspaceUnits(workspaceSources),
-					compilerConfiguration));
-		} catch (Throwable ignored) {
-			return parseSupplementalDiagnostics(unit, source, workspaceUnits(workspaceSources));
+			List<CategorizedProblem> compilerProblems = new EcjCompilerDiagnostics().diagnose(unit, workspaceUnits,
+					compilerConfiguration);
+			return toDiagnostics(source, compilerProblems);
+		} catch (Throwable ex) {
+			List<DiagnosticData> diagnostics = new ArrayList<>();
+			try {
+				diagnostics.addAll(parseSupplementalDiagnostics(unit, source, workspaceUnits));
+			} catch (Throwable ignored) {
+			}
+			diagnostics.add(analysisFailureDiagnostic(source, ex));
+			return diagnostics;
 		}
 	}
 

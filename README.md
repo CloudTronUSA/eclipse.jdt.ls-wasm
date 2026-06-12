@@ -171,7 +171,9 @@ org.eclipse.jdt.ls.web.WebJdtLs.signatureHelp(String uri, String source, int lin
 org.eclipse.jdt.ls.web.WebJdtLs.handle(String payload)
 ```
 
-`lint` returns a JSON array of diagnostics for one Java source.
+`lint` returns a JSON array of diagnostics for one Java source. Compiler
+runtime failures, including WASM traps raised while analyzing code, are returned
+as error diagnostics instead of escaping through the public loader API.
 
 `complete`, `hover`, and `signatureHelp` return JSON strings shaped like LSP
 results. Method completions insert only the method name, not parentheses.
